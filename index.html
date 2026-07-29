@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Multi Timezone Digital Clock</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#94a3b8; --text:#e6eef6;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    body{
+      margin:0; min-height:100vh; display:flex; align-items:flex-start; justify-content:center;
+      background:linear-gradient(180deg,#071028 0%, #041827 100%); color:var(--text); padding:32px;
+    }
+    .app{
+      width:100%; max-width:980px;
+    }
+    header{
+      display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:18px;
+    }
+    h1{ margin:0; font-size:20px; letter-spacing:0.4px; }
+    .controls{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    select,input[type="text"]{ padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:var(--card); color:var(--text); }
+    button{ background:var(--accent); color:#042029; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+    .clock-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; margin-top:16px; }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.03); border-radius:12px; padding:14px;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.5);
+    }
+    .tz-name{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+    .city{ font-weight:700; font-size:15px; }
+    .tz-info{ font-size:12px; color:var(--muted); }
+    .time{ font-size:26px; font-weight:700; letter-spacing:0.4px; margin:6px 0; }
+    .date{ color:var(--muted); font-size:13px; }
+    .remove{ background:transparent; color:var(--muted); border:1px solid rgba(255,255,255,0.03); padding:6px 8px; border-radius:8px; cursor:pointer; }
+    footer{ margin-top:18px; color:var(--muted); font-size:13px; }
+    @media (max-width:480px){ .time{ font-size:20px } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Multi Timezone Digital Clock</h1>
+      <div class="controls">
+        <label style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;">
+          <input id="toggle24" type="checkbox" /> Use 24-hour
+        </label>
+        <select id="presetZones" aria-label="Add timezone">
+          <option value="">Add a timezone…</option>
+          <optgroup label="UTC / Americas">
+            <option value="UTC">UTC</option>
+            <option value="America/New_York">America / New_York</option>
+            <option value="America/Chicago">America / Chicago</option>
+            <option value="America/Denver">America / Denver</option>
+            <option value="America/Los_Angeles">America / Los_Angeles</option>
+          </optgroup>
+          <optgroup label="Europe">
+            <option value="Europe/London">Europe / London</option>
+            <option value="Europe/Paris">Europe / Paris</option>
+            <option value="Europe/Berlin">Europe / Berlin</option>
+            <option value="Europe/Moscow">Europe / Moscow</option>
+            <option value="Europe/Cairo">Europe / Cairo</option>
+          </optgroup>
+          <optgroup label="Asia / Oceania">
+            <option value="Asia/Kolkata">Asia / Kolkata</option>
+            <option value="Asia/Dubai">Asia / Dubai</option>
+            <option value="Asia/Tokyo">Asia / Tokyo</option>
+            <option value="Asia/Shanghai">Asia / Shanghai</option>
+            <option value="Australia/Sydney">Australia / Sydney</option>
+          </optgroup>
+        </select>
+        <input id="customTz" placeholder="Or enter IANA zone (e.g. Asia/Riyadh)" />
+        <button id="addZone">Add</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="clockGrid" class="clock-grid" aria-live="polite"></div>
+    </main>
+
+    <footer>
+      Tip: Use IANA time zone names (e.g., Europe/London or Asia/Riyadh). See a list of zones online if needed.
+    </footer>
+  </div>
+
+  <script>
+    // Initial preset zones
+    const defaultZones = ['UTC','Europe/London','America/New_York','Asia/Tokyo','Europe/Cairo'];
+
+    const grid = document.getElementById('clockGrid');
+    const addBtn = document.getElementById('addZone');
+    const preset = document.getElementById('presetZones');
+    const custom = document.getElementById('customTz');
+    const toggle24 = document.getElementById('toggle24');
+
+    // store zones in an array of objects {id, tz}
+    let zones = [];
+
+    // Util: create unique id
+    const uid = (tz) => tz.replace(/[^a-z0-9]/gi,'_') + '_' + Math.random().toString(36).slice(2,8);
+
+    // Add zone (validate timezone)
+    function addZone(tzName){
+      tzName = tzName?.trim();
+      if(!tzName) return;
+      // prevent duplicates
+      if(zones.some(z => z.tz === tzName)) {
+        alert('Timezone already added.');
+        return;
+      }
+      try{
+        // test if the timezone is valid by creating a formatter
+        new Intl.DateTimeFormat(undefined, {timeZone: tzName}).format();
+      } catch(e){
+        alert('Invalid IANA time zone name: ' + tzName);
+        return;
+      }
+      const id = uid(tzName);
+      zones.push({id, tz: tzName});
+      renderZones();
+    }
+
+    // Remove zone
+    function removeZone(id){
+      zones = zones.filter(z => z.id !== id);
+      renderZones();
+    }
+
+    // Render all zones
+    function renderZones(){
+      grid.innerHTML = '';
+      if(zones.length === 0){
+        grid.innerHTML = '<div style="color:var(--muted)">No time zones added yet. Use the menu above to add one.</div>';
+        return;
+      }
+      zones.forEach(z => {
+        const card = document.createElement('section');
+        card.className = 'card';
+        card.dataset.tz = z.tz;
+        card.dataset.id = z.id;
+        card.innerHTML = `
+          <div class="tz-name">
+            <div>
+              <div class="city">${z.tz.replace('_',' ').replace('/',' / ')}</div>
+              <div class="tz-info" data-tzname>—</div>
+            </div>
+            <div>
+              <button class="remove" data-remove>Remove</button>
+            </div>
+          </div>
+          <div class="time" data-time>--:--:--</div>
+          <div class="date" data-date>—</div>
+        `;
+        grid.appendChild(card);
+
+        card.querySelector('[data-remove]').addEventListener('click', () => removeZone(z.id));
+      });
+      updateAll(); // update immediately after render
+    }
+
+    // Update display for all zones
+    function updateAll(){
+      const now = new Date();
+      const is24 = toggle24.checked;
+      document.querySelectorAll('.card').forEach(card => {
+        const tz = card.dataset.tz;
+        // time & date formatters
+        const timeFmt = new Intl.DateTimeFormat(undefined, {
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: !is24, timeZone: tz
+        });
+        const dateFmt = new Intl.DateTimeFormat(undefined, {
+          weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+          timeZone: tz
+        });
+        // timezone name (short)
+        let tzName = '';
+        try {
+          const tzParts = new Intl.DateTimeFormat(undefined, {timeZone: tz, timeZoneName: 'short'}).formatToParts(now);
+          const part = tzParts.find(p => p.type === 'timeZoneName');
+          tzName = part ? part.value : '';
+        } catch(e){
+          tzName = '';
+        }
+
+        card.querySelector('[data-time]').textContent = timeFmt.format(now);
+        card.querySelector('[data-date]').textContent = dateFmt.format(now);
+        card.querySelector('[data-tzname]').textContent = tzName ? tzName : tz;
+      });
+    }
+
+    // Start periodic updates (every 1s, but align to second)
+    let tickTimer;
+    function startTicker(){
+      if(tickTimer) clearInterval(tickTimer);
+      // Align to the next full second for smoothness
+      const now = Date.now();
+      const untilNext = 1000 - (now % 1000) + 5;
+      setTimeout(() => {
+        updateAll();
+        tickTimer = setInterval(updateAll, 1000);
+      }, untilNext);
+    }
+
+    // Event listeners
+    addBtn.addEventListener('click', () => {
+      const tz = custom.value.trim() || preset.value;
+      if(!tz){ alert('Choose or type a timezone'); return; }
+      addZone(tz);
+      custom.value = '';
+      preset.selectedIndex = 0;
+    });
+
+    preset.addEventListener('change', () => {
+      // if a preset is selected, put it into custom input for clarity (or add directly)
+      const val = preset.value;
+      if(val) custom.value = val;
+    });
+
+    toggle24.addEventListener('change', () => updateAll());
+
+    // initialize default zones
+    defaultZones.forEach(tz => addZone(tz));
+
+    startTicker();
+    // keep visibility updates if the tab is hidden/visible
+    document.addEventListener('visibilitychange', () => {
+      if(!document.hidden) updateAll();
+    });
+
+    // Optional: persist zones in localStorage
+    function saveZones(){
+      try{ localStorage.setItem('multi_tz_zones', JSON.stringify(zones.map(z=>z.tz))); }catch(e){}
+    }
+    function loadZones(){
+      try{
+        const raw = localStorage.getItem('multi_tz_zones');
+        if(!raw) return false;
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr) && arr.length) {
+          zones = [];
+          arr.forEach(tz => {
+            try{
+              new Intl.DateTimeFormat(undefined, {timeZone: tz}).format();
+              zones.push({id: uid(tz), tz});
+            }catch(e){}
+          });
+          renderZones();
+          return true;
+        }
+      }catch(e){}
+      return false;
+    }
+    // load if present, else defaults are already added
+    if(loadZones()){ renderZones(); }
+    // save when zones change (observe zones via simple proxy)
+    const origAdd = addZone;
+    addZone = function(tz){ origAdd(tz); saveZones(); }
+    const origRemove = removeZone;
+    removeZone = function(id){ origRemove(id); saveZones(); }
+  </script>
+</body>
+</html>
